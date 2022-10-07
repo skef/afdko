@@ -198,7 +198,6 @@ struct ufoCtx_ {
     int flags;
 #define SEEN_END 1
     struct {
-        void* dbg;
         void* src;
     } stm;
     struct {
@@ -280,6 +279,7 @@ struct ufoCtx_ {
         _Exc_Buf env;
         int code;
     } err;
+    std::shared_ptr<slogger> logger;
 };
 
 typedef struct {
@@ -333,34 +333,15 @@ const char* ufoErrStr(int err_code) {
     return (err_code < 0 || err_code >= (int)ARRAY_LEN(errstrs)) ? (char*)"unknown error" : errstrs[err_code];
 }
 
-/* Write message to debug stream from va_list. */
-static void vmessage(ufoCtx h, const char* fmt, va_list ap) {
-    char text[BUFSIZ];
-
-    if (h->stm.dbg == NULL)
-        return; /* Debug stream not available */
-
-    VSPRINTF_S(text, sizeof(text), fmt, ap);
-    (void)h->cb.stm.write(&h->cb.stm, h->stm.dbg, strlen(text), text);
-}
-
-/* Write message to debug stream from varargs. */
-static void CTL_CDECL message(ufoCtx h, const char* fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vmessage(h, fmt, ap);
-    va_end(ap);
-}
-
 static void CTL_CDECL fatal(ufoCtx h, int err_code, const char* fmt, ...) {
     if (fmt == NULL)
         /* Write standard error message */
-        message(h, "%s", ufoErrStr(err_code));
+        h->logger->msg(sFATAL, ufoErrStr(err_code));
     else {
         /* Write font-specific error message */
         va_list ap;
         va_start(ap, fmt);
-        vmessage(h, fmt, ap);
+        h->logger->vlog(sFATAL, fmt, ap);
         va_end(ap);
     }
     h->err.code = err_code;
@@ -443,9 +424,8 @@ void ufoFree(ufoCtx h) {
         memFree(h, h->top.FDArray.array);
     }
 
-    /* Close debug stream */
-    if (h->stm.dbg != NULL)
-        (void)h->cb.stm.close(&h->cb.stm, h->stm.dbg);
+    // Needed while context might be malloc-ed
+    h->logger = nullptr;
 
     /* Free library context */
     memFree(h, h);
@@ -453,7 +433,7 @@ void ufoFree(ufoCtx h) {
 
 /* Validate client and create context */
 ufoCtx ufoNew(ctlMemoryCallbacks* mem_cb, ctlStreamCallbacks* stm_cb,
-              CTL_CHECK_ARGS_DCL) {
+              CTL_CHECK_ARGS_DCL, std::shared_ptr<slogger> logger) {
     ufoCtx h;
 
     /* Check client/library compatibility */
@@ -494,10 +474,12 @@ ufoCtx ufoNew(ctlMemoryCallbacks* mem_cb, ctlStreamCallbacks* stm_cb,
     dnaINIT(h->dna, h->hints.flexOpList, 10, 10);
     h->hints.hintMasks.func = initHintMask;
 
-    newStrings(h);
+    if (logger == nullptr)
+        h->logger = slogger::getLogger("uforead");
+    else
+        h->logger = logger;
 
-    /* Open debug stream */
-    h->stm.dbg = h->cb.stm.open(&h->cb.stm, UFO_DBG_STREAM_ID, 0);
+    newStrings(h);
 
     HANDLER
     /* Initialization failed */
@@ -510,8 +492,8 @@ ufoCtx ufoNew(ctlMemoryCallbacks* mem_cb, ctlStreamCallbacks* stm_cb,
 
 static void prepClientData(ufoCtx h) {
     h->top.sup.nGlyphs = h->chars.index.cnt;
-    if (h->stm.dbg == NULL)
-        abfCheckAllDicts(NULL, &h->top);
+//    if (h->stm.dbg == NULL)
+//        abfCheckAllDicts(NULL, &h->top);
 }
 
 /* ---------------------- Buffer handling ---------------------------- */
@@ -978,7 +960,7 @@ static void freeValueArray(ufoCtx h) {
 static void setGlifOrderArray(ufoCtx h, const char* arrayKeyName) {
     int i = 0;
     if (h->valueArray.cnt == 0) {
-//        message(h, "Warning: Encountered empty or invalid array for %s. Skipping", arrayKeyName);
+//        h->logger->log(sWARNING, "Encountered empty or invalid array for %s. Skipping", arrayKeyName);
         return;
     }
     while ((i < h->valueArray.cnt)) {
@@ -996,7 +978,7 @@ static void setBluesArrayValue(ufoCtx h, BluesArray* bluesArray, int numElements
                                const char* arrayKeyName) {
     int i = 0;
     if (h->valueArray.cnt == 0) {
-//        message(h, "Warning: Encountered empty or invalid array for %s. Skipping", arrayKeyName);
+//        h->logger->log(sWARNING, "Encountered empty or invalid array for %s. Skipping", arrayKeyName);
         return;
     }
     bluesArray->cnt = h->valueArray.cnt;
@@ -1011,7 +993,7 @@ static void setBluesArrayValue(ufoCtx h, BluesArray* bluesArray, int numElements
 static void setFontMatrix(ufoCtx h, abfFontMatrix* fontMatrix, int numElements) {
     int i = 0;
     if (h->valueArray.cnt == 0) {
-//        message(h, "Warning: Encountered empty or invalid array for FontMatrix. Skipping");
+//        h->logger->log(sWARNING, "Encountered empty or invalid array for FontMatrix. Skipping");
         return;
     }
     fontMatrix->cnt = h->valueArray.cnt;
@@ -1032,13 +1014,13 @@ static bool keyValueParseable(ufoCtx h, xmlNodePtr cur, const char* keyValue,
     if (keyValue == NULL) {
         if (!h->parseState.parsingValueArray)
             valid = false;
-//            message(h, "Warning: Encountered missing value for fontinfo key %s. Skipping", keyName);
+//            h->logger->log(sWARNING, "Encountered missing value for fontinfo key %s. Skipping", keyName);
         else if (h->parseState.parsingValueArray && h->valueArray.cnt == 0)
             valid = false;
-//            message(h, "Warning: Encountered empty <%s> for fontinfo key %s. Skipping", cur->name, keyName);
+//            h->logger->log(sWARNING, "Encountered empty <%s> for fontinfo key %s. Skipping", cur->name, keyName);
     } else {
         if (strEqual(keyValue, "")){
-//        message(h, "Warning: Encountered empty <%s> for fontinfo key %s. Skipping", cur->name, keyName);
+//        h->logger->log(sWARNING, "Encountered empty <%s> for fontinfo key %s. Skipping", cur->name, keyName);
         valid = false;
         }
     }
@@ -1113,7 +1095,7 @@ static long getGlyphOrderIndex(ufoCtx h, const char* glyphName) {
                   sizeof(h->data.glifOrder.array[0]), matchGLIFOrderRec, &recIndex, h)) {
         orderIndex = h->data.glifOrder.array[recIndex].order;
     } else {
-        message(h, "Warning: glyph order does not contain glyph name '%s'.", glyphName);
+        h->logger->log(sWARNING, "Glyph order does not contain glyph name '%s'.", glyphName);
     }
 
     return orderIndex;
@@ -1161,7 +1143,7 @@ static void updateGLIFRec(ufoCtx h, const char* glyphName, xmlNodePtr cur) {
 
     index = findGLIFRecByName(h, glyphName);
     if (index == -1) {
-        message(h, "Warning: glyph '%s' is in the processed layer but not in the default layer.", glyphName);
+        h->logger->log(sWARNING, "Glyph '%s' is in the processed layer but not in the default layer.", glyphName);
     } else {
         GLIF_Rec* glifRec;
 
@@ -1193,7 +1175,7 @@ static int parseGlyphOrder(ufoCtx h) {
     h->cb.stm.clientFileName = "lib.plist";
     h->stm.src = h->cb.stm.open(&h->cb.stm, UFO_SRC_STREAM_ID, 0);
     if (h->stm.src == NULL || h->cb.stm.seek(&h->cb.stm, h->stm.src, 0)) {
-        message(h, "Warning: Unable to open lib.plist in source UFO font.");
+        h->logger->log(sWARNING, "Unable to open lib.plist in source UFO font.");
         return ufoSuccess;
     }
 
@@ -1216,7 +1198,7 @@ static int parseGlyphOrder(ufoCtx h) {
                 if (0 == strcmp(h->data.glifOrder.array[i].glyphName, h->data.glifOrder.array[i - 1].glyphName)) {
                     /* set the glyph orders to be the same. First wins */
                     h->data.glifOrder.array[i].order = h->data.glifOrder.array[i - 1].order;
-                    message(h, "Warning: glyph order contains duplicate entries for glyphs '%s'.", h->data.glifOrder.array[i].glyphName);
+                    h->logger->log(sWARNING, "Glyph order contains duplicate entries for glyphs '%s'.", h->data.glifOrder.array[i].glyphName);
                 }
                 i++;
             }
@@ -1254,7 +1236,7 @@ static int parseGlyphList(ufoCtx h, bool altLayer) {
             h->hasAltLayer = false;
             return ufoSuccess;
         } else {
-            fprintf(stderr, "Failed to read %s\n", h->cb.stm.clientFileName);
+            h->logger->log(sWARNING, "Failed to read %s\n", h->cb.stm.clientFileName);
             return ufoErrSrcStream;
         }
     }
@@ -1268,7 +1250,7 @@ static int parseGlyphList(ufoCtx h, bool altLayer) {
         if glyphOrder count is 0 to reduce amount of warnings.
         Instead, add one warning here.*/
     if (h->data.glifOrder.cnt == 0)
-        message(h, "Warning: public.glyphOrder key is empty and does not contain glyph name for all %ld glyphs. Consider defining this in lib.plist.", h->data.glifRecs.cnt);
+        h->logger->log(sWARNING, "public.glyphOrder key is empty and does not contain glyph name for all %ld glyphs. Consider defining this in lib.plist.", h->data.glifRecs.cnt);
 
     /* process the glyph order layers */
     if (!altLayer) {
@@ -1317,7 +1299,7 @@ static void addCharFromGLIF(ufoCtx h, int tag, const char* glyphName,
     abfGlyphInfo* chr;
 
     if (addChar(h, tag, &chr)) {
-        message(h, "Warning: duplicate charstring <%s> (discarded)",
+        h->logger->log(sWARNING, "Duplicate charstring <%s> (discarded)",
                 getString(h, tag));
     } else {
         chr->flags = 0;
@@ -1326,14 +1308,14 @@ static void addCharFromGLIF(ufoCtx h, int tag, const char* glyphName,
         if (h->parseState.GLIFInfo.currentCID >= 0) {
             chr->cid = h->parseState.GLIFInfo.currentCID;
             if (h->parseState.GLIFInfo.currentiFD < 0){
-                    fatal(h, ufoErrParse, "Warning: glyph '%s' missing FDArray index within <lib> dict", glyphName);
+                    fatal(h, ufoErrParse, "Glyph '%s' missing FDArray index within <lib> dict", glyphName);
             }
             chr->iFD = h->parseState.GLIFInfo.currentiFD;
             if (h->parseState.GLIFInfo.currentCID > h->parseState.GLIFInfo.CIDCount) {
                 h->parseState.GLIFInfo.CIDCount = (long)h->parseState.GLIFInfo.currentCID + 1;
             }
         } else if (h->top.sup.flags & ABF_CID_FONT) {
-            fatal(h, ufoErrParse, "Warning: glyph '%s' missing CID number within <lib> dict", glyphName);
+            fatal(h, ufoErrParse, "Glyph '%s' missing CID number within <lib> dict", glyphName);
         }
         chr->gname.ptr = glyphName;
         chr->gname.impl = tag;
@@ -1394,11 +1376,11 @@ static int preParseGLIF(ufoCtx h, GLIF_Rec* glifRec, int tag) {
         h->stm.src = h->cb.stm.open(&h->cb.stm, UFO_SRC_STREAM_ID, 0);
     }
     if (h->stm.src == NULL) {
-        fprintf(stderr, "Failed to open glif file in parseGLIF: %s.\n", glifRec->glifFilePath);
+        h->logger->log(sWARNING, "Failed to open glif file in parseGLIF: %s.", glifRec->glifFilePath);
         return ufoErrSrcStream;
     }
     if (h->cb.stm.seek(&h->cb.stm, h->stm.src, 0)) {
-        fprintf(stderr, "Failed to open glif file in parseGLIF: %s.\n", glifRec->glifFilePath);
+        h->logger->log(sWARNING, "Failed to open glif file in parseGLIF: %s.", glifRec->glifFilePath);
         return ufoErrSrcStream;
     }
 
@@ -1430,11 +1412,11 @@ static void fixUnsetDictValues(ufoCtx h) {
     abfPrivateDict* pd = &fd0->Private;
 
     if (fd0->FontName.ptr == NULL) {
-        message(h, "Warning: No PS name specified in source UFO font.");
+        h->logger->msg(sWARNING, "No PS name specified in source UFO font.");
     }
 
     if (top->version.ptr == NULL) {
-        message(h, "Warning: No version specified in source UFO font.");
+        h->logger->msg(sWARNING, "No version specified in source UFO font.");
     }
 
     if (pd->StemSnapH.cnt > ABF_EMPTY_ARRAY) {
@@ -1634,11 +1616,11 @@ static const char* parseXMLKeyName(ufoCtx h, xmlNodePtr cur) {
             if (xmlStrEqual(cur->name, (const xmlChar *) "text")) {
                 return (char*) xmlNodeGetContent(cur);
             } else {
-//                message(h, "Warning: Encountered non-text value %s within <key>.", cur->name);
+//                h->logger->log(sWARNING, "Encountered non-text value %s within <key>.", cur->name);
                 return NULL;
             }
         } else {
-//            message(h, "Warning: Encountered empty <key></key>.");
+//            h->logger->log(sWARNING, "Encountered empty <key></key>.");
             return NULL;
         }
     } else {
@@ -1780,7 +1762,7 @@ static int parseFontInfo(ufoCtx h) {
     h->cb.stm.clientFileName = "fontinfo.plist";
     h->stm.src = h->cb.stm.open(&h->cb.stm, UFO_SRC_STREAM_ID, 0);
     if (h->stm.src == NULL || h->cb.stm.seek(&h->cb.stm, h->stm.src, 0)) {
-        message(h, "Warning: Unable to open fontinfo.plist in source UFO font. No PostScript FontDict values are specified. \n");
+        h->logger->log(sWARNING, "Unable to open fontinfo.plist in source UFO font. No PostScript FontDict values are specified.");
         fixUnsetDictValues(h);
         return ufoSuccess;
     }
@@ -2233,7 +2215,7 @@ static int parseGLIF(ufoCtx h, abfGlyphInfo* gi, abfGlyphCallbacks* glyph_cb, Tr
 static int setParseXMLComponentValue(ufoCtx h, abfGlyphInfo* gi, abfGlyphCallbacks* glyph_cb, GLIF_Rec* glifRec, Transform* transform, Transform localTransform, Transform *newTransform, int result) {
     Transform concatTransform;
     if (gi == NULL) {
-        message(h, "Missing component base attribute. Glyph: %s, Context: %s.\n", glifRec->glifFilePath, getBufferContextPtr(h));
+        h->logger->log(sWARNING, "Missing component base attribute. Glyph: %s, Context: %s.\n", glifRec->glifFilePath, getBufferContextPtr(h));
         result = ufoErrNoGlyph;
         return result;
     }
@@ -2329,7 +2311,7 @@ static int parseXMLComponent(ufoCtx h, xmlNodePtr cur, GLIF_Rec* glifRec, abfGly
             char* glyphName = getXmlAttrValue(attr);
             if (!ctuLookup(glyphName, h->chars.byName.array, h->chars.byName.cnt,
                            sizeof(h->chars.byName.array[0]), postMatchChar, &index, h)) {
-                fprintf(stderr, "Could not find component base glyph %s. parent Glyph: %s\n", glyphName, glifRec->glifFilePath);
+                h->logger->log(sWARNING, "Could not find component base glyph %s. parent Glyph: %s\n", glyphName, glifRec->glifFilePath);
                 result = ufoErrNoGlyph;
                 break;
             }
@@ -2771,7 +2753,7 @@ static int parseGLIF(ufoCtx h, abfGlyphInfo* gi, abfGlyphCallbacks* glyph_cb, Tr
     h->stm.src = h->cb.stm.open(&h->cb.stm, UFO_SRC_STREAM_ID, 0);
 
     if (h->stm.src == NULL || h->cb.stm.seek(&h->cb.stm, h->stm.src, gi->sup.begin)) {
-        fprintf(stderr, "Failed to open glif file in parseGLIFOutline. Glyph: %s. Context: %s\n.", glifRec->glyphName, getBufferContextPtr(h));
+        h->logger->log(sFATAL, "Failed to open glif file in parseGLIFOutline. Glyph: %s. Context: %s\n.", glifRec->glyphName, getBufferContextPtr(h));
         fatal(h, ufoErrSrcStream, 0);
     }
 
@@ -2897,7 +2879,7 @@ static STI addString(ufoCtx h, size_t length, const char* value) {
         static const char subs_name[] = "_null_name_substitute_";
         value = subs_name;
         length = sizeof(subs_name) - 1;
-        message(h, "null charstring name");
+        h->logger->msg(sWARNING, "null charstring name");
     }
 
     /* Add new string index */
