@@ -36,9 +36,8 @@
 #include <math.h>
 #include <float.h>
 
-#if defined(WIN32) || defined(WIN64)
-# define strtok_r strtok_s
-#endif
+#include <iostream>
+
 #include "absfont.h"
 #include "dynarr.h"
 #include "ctutil.h"
@@ -274,8 +273,7 @@ struct ufoCtx_ {
        enum ufoFileState UFOFile;
        glifInfo GLIFInfo;
     } parseState;
-    struct
-    {
+    struct {
         _Exc_Buf env;
         int code;
     } err;
@@ -1019,7 +1017,7 @@ static bool keyValueParseable(ufoCtx h, xmlNodePtr cur, const char* keyValue,
             valid = false;
 //            h->logger->log(sWARNING, "Encountered empty <%s> for fontinfo key %s. Skipping", cur->name, keyName);
     } else {
-        if (strEqual(keyValue, "")){
+        if (strEqual(keyValue, "")) {
 //        h->logger->log(sWARNING, "Encountered empty <%s> for fontinfo key %s. Skipping", cur->name, keyName);
         valid = false;
         }
@@ -1307,7 +1305,7 @@ static void addCharFromGLIF(ufoCtx h, int tag, const char* glyphName,
         chr->iFD = 0;
         if (h->parseState.GLIFInfo.currentCID >= 0) {
             chr->cid = h->parseState.GLIFInfo.currentCID;
-            if (h->parseState.GLIFInfo.currentiFD < 0){
+            if (h->parseState.GLIFInfo.currentiFD < 0) {
                     fatal(h, ufoErrParse, "Glyph '%s' missing FDArray index within <lib> dict", glyphName);
             }
             chr->iFD = h->parseState.GLIFInfo.currentiFD;
@@ -1459,7 +1457,7 @@ static void reallocFDArray(ufoCtx h) {
     h->top.FDArray.array = newFDArray;
 }
 
-static xmlNodePtr parseXMLFile(ufoCtx h, const char* filename, const char* filetype){
+static xmlNodePtr parseXMLFile(ufoCtx h, const char* filename, const char* filetype) {
     xmlDocPtr doc;
     xmlNodePtr cur;
     int result;
@@ -1509,21 +1507,21 @@ static bool strEqual(const char* string1, const char* string2) {
     return !(strcmp(string1, string2));
 }
 
-static bool xmlKeyEqual(xmlNodePtr cur, const char* name){
+static bool xmlKeyEqual(xmlNodePtr cur, const char* name) {
     if (cur != NULL)
         return xmlStrEqual(cur->name, (const xmlChar *) name);
     else
         return false;
 }
 
-static bool xmlAttrEqual(xmlAttr *attr, const char* name){
+static bool xmlAttrEqual(xmlAttr *attr, const char* name) {
     if (attr != NULL)
         return xmlStrEqual(attr->name, (const xmlChar *) name);
     else
         return false;
 }
 
-static char* getXmlAttrValue(xmlAttr *attr){
+static char* getXmlAttrValue(xmlAttr *attr) {
     return (char*) attr->children->content;
 }
 
@@ -1648,7 +1646,7 @@ static void parseXMLDict(ufoCtx h, xmlNodePtr cur) {
     const char* keyName;
     cur = cur->xmlChildrenNode;
 
-    if (h->parseState.FDArray){
+    if (h->parseState.FDArray) {
         h->parseState.GLIFInfo.currentiFD = h->parseState.GLIFInfo.currentiFD + 1;
         h->top.FDArray.cnt = h->top.FDArray.cnt + 1;
         if (h->top.FDArray.cnt > FDArrayInitSize) {  // Memory needs reallocation
@@ -1732,7 +1730,7 @@ static int parseXMLGlifFile(ufoCtx h, xmlNodePtr cur, int tag, unsigned long *un
     return ufoSuccess;
 }
 
-static bool setLibKey(ufoCtx h, const char* keyName, xmlNodePtr cur){
+static bool setLibKey(ufoCtx h, const char* keyName, xmlNodePtr cur) {
     abfTopDict* top = &h->top;
     const char* keyValue = parseXMLKeyValue(h, cur);
     if (!keyValueParseable(h, cur, keyValue, keyName))
@@ -1808,12 +1806,13 @@ static void setFontInfoTrademark(ufoCtx h, const char* keyValue) {
         /* if there is a copyright symbol (U+00A9),
            replace it with the word "Copyright" */
         char* cpy = "Copyright";
-        char* newString = (char *) memNew(h, strlen(cpy) + strlen(keyValue) + 2);
+        int l = strlen(cpy) + strlen(keyValue) + 2;
+        char* newString = (char *) memNew(h, l);
         /* set the 0xC2 to NULL to terminate the left side of the string */
         *copySymbol = '\0';
         /* use copySymbol + 2 to skip the NULL and the 0xA9
            to get the right side of the string */
-        sprintf(newString, "%s%s%s", keyValue, "Copyright", copySymbol + 2);
+        snprintf(newString, l, "%s%s%s", keyValue, "Copyright", copySymbol + 2);
         top->Notice.ptr = newString;
     }
 }
@@ -1824,8 +1823,9 @@ static void setFontInfoVersionMajor(ufoCtx h, const char* keyValue) {
     if (top->version.ptr == NULL)
         top->version.ptr = keyValue;
     else {
-        char* newString = (char *) memNew(h, strlen(top->version.ptr) + strlen(keyValue) + 2);
-        sprintf(newString, "%s.%s", keyValue, top->version.ptr);
+        int l = strlen(top->version.ptr) + strlen(keyValue) + 2;
+        char* newString = (char *) memNew(h, l);
+        snprintf(newString, l, "%s.%s", keyValue, top->version.ptr);
         // XXX might leak here
         // memFree(h, top->version.ptr);
         top->version.ptr = newString;
@@ -1838,8 +1838,9 @@ static void setFontIndoVersionMinor(ufoCtx h, const char* keyValue) {
     if (top->version.ptr == NULL)
         top->version.ptr = keyValue;
     else {
-        char* newString = (char *)memNew(h, strlen(top->version.ptr) + strlen(keyValue) + 2);
-        sprintf(newString, "%s.%s", top->version.ptr, keyValue);
+        int l = strlen(top->version.ptr) + strlen(keyValue) + 2;
+        char* newString = (char *)memNew(h, l);
+        snprintf(newString, l, "%s.%s", top->version.ptr, keyValue);
         // XXX might leak here
         // memFree(h, top->version.ptr);
         top->version.ptr = newString;
@@ -1998,7 +1999,7 @@ static bool setFontInfoKey(ufoCtx h, const char* keyName, xmlNodePtr cur) {
     /* returns false when current key is NULL/ not parseable,
     otherwise returns true */
     bool result;
-    if (keyName == NULL){
+    if (keyName == NULL) {
      return false;
     }
     /* parse dictionaries */
@@ -2123,7 +2124,7 @@ static int parseNote(ufoCtx h, GLIF_Rec* glifRec, int state) {
     return result;
 }
 
-static int setPointKeyValue(ufoCtx h, abfGlyphCallbacks* glyph_cb, float x, float y, int type, char* pointName){
+static int setPointKeyValue(ufoCtx h, abfGlyphCallbacks* glyph_cb, float x, float y, int type, char* pointName) {
     Transform* transform = h->parseState.GLIFInfo.transform;
     int result = ufoSuccess;
     if ((transform != NULL) && (!transform->isDefault)) {
@@ -2248,14 +2249,14 @@ static int setParseXMLComponentValue(ufoCtx h, abfGlyphInfo* gi, abfGlyphCallbac
     return result;
 }
 
-static int parseXMLContour(ufoCtx h, xmlNodePtr cur, GLIF_Rec* glifRec, abfGlyphCallbacks* glyph_cb){
+static int parseXMLContour(ufoCtx h, xmlNodePtr cur, GLIF_Rec* glifRec, abfGlyphCallbacks* glyph_cb) {
     long contourStartOpIndex = h->data.opList.cnt;
     h->stack.flags |= PARSE_PATH;
     h->stack.flags &= ~((unsigned long)PARSE_SEEN_MOVETO);
     xmlNodePtr curChild = cur->xmlChildrenNode;
     int result = ufoSuccess;
-    while (curChild != NULL){
-        if (xmlKeyEqual(curChild, "point")){
+    while (curChild != NULL) {
+        if (xmlKeyEqual(curChild, "point")) {
             result = parseXMLPoint(h, curChild, glyph_cb, glifRec, 2);
         }
         curChild = curChild->next;
@@ -2306,7 +2307,7 @@ static int parseXMLComponent(ufoCtx h, xmlNodePtr cur, GLIF_Rec* glifRec, abfGly
 
     xmlAttr *attr = cur->properties;
     while (attr != NULL) {
-        if (xmlAttrEqual(attr, "base")){
+        if (xmlAttrEqual(attr, "base")) {
             size_t index;
             char* glyphName = getXmlAttrValue(attr);
             if (!ctuLookup(glyphName, h->chars.byName.array, h->chars.byName.cnt,
@@ -2539,7 +2540,7 @@ static bool setStemsArrayValue(ufoCtx h, HintMask* curHintMask) {
         return false;
     while ((i < h->valueArray.cnt)) {
         char* stemValues;
-        char* stemType = strtok_r(h->valueArray.array[i], " ", &stemValues);
+        char* stemType = STRTOK_R(h->valueArray.array[i], " ", &stemValues);
         if (strEqual(stemType, "hstem")) {
             parseStemV2(h, curHintMask, stemFlags, stemValues);
         } else if (strEqual(stemType, "hstem3")) {

@@ -1556,7 +1556,8 @@ static void saveHint(cstrCtx h) {
 static void newHint(cstrCtx h) {
     if (h->pendop == tx_noop && h->iCstr == h->cstr.cnt) {
         /* Consecutive hintsubs; clear mask */
-        addWarn(h, warn_hint6);
+        if (!(h->g->flags & CFW_NO_HINT_WARNINGS))
+            addWarn(h, warn_hint6);
         CLEAR_MASK(h->hintmask);
     } else {
         if (h->pendop != tx_noop) {
@@ -1646,7 +1647,8 @@ static unsigned char addStem(cstrCtx h, int flags, float edge0, float edge1) {
 
     delta = edge1 - edge0;
     if (delta < 0 && delta != ABF_EDGE_HINT_LO && delta != ABF_EDGE_HINT_HI) {
-        addWarn(h, warn_hint0);
+        if (!(h->g->flags & CFW_NO_HINT_WARNINGS))
+            addWarn(h, warn_hint0);
         _new.edge0 = edge1;
         _new.edge1 = edge0;
     } else {
@@ -1682,7 +1684,8 @@ static unsigned char addStem(cstrCtx h, int flags, float edge0, float edge1) {
 
         /* New stem */
         if (h->stems.cnt == T2_MAX_STEMS) {
-            addWarn(h, warn_hint3);
+            if (!(h->g->flags & CFW_NO_HINT_WARNINGS))
+                addWarn(h, warn_hint3);
         } else {
             /* Insert new stem in list */
             memmove(stem + 1, stem, (h->stems.cnt - index) * sizeof(Stem));
@@ -1715,7 +1718,8 @@ static unsigned char addStemVF(cstrCtx h, int flags, abfBlendArg *edge0v, abfBle
 
     delta = edge1 - edge0;
     if (delta < 0 && delta != ABF_EDGE_HINT_LO && delta != ABF_EDGE_HINT_HI) {
-        addWarn(h, warn_hint0);
+        if (!(h->g->flags & CFW_NO_HINT_WARNINGS))
+            addWarn(h, warn_hint0);
         _new.edge0v = *edge1v;
         _new.edge1v = *edge0v;
     } else {
@@ -1751,7 +1755,8 @@ static unsigned char addStemVF(cstrCtx h, int flags, abfBlendArg *edge0v, abfBle
 
         /* New stem */
         if (h->stems.cnt == T2_MAX_STEMS) {
-            addWarn(h, warn_hint3);
+            if (!(h->g->flags & CFW_NO_HINT_WARNINGS))
+                addWarn(h, warn_hint3);
         } else {
             /* Insert new stem in list */
             memmove(stem + 1, stem, (h->stems.cnt - index) * sizeof(Stem));
@@ -2115,7 +2120,8 @@ static void checkOverlap(cstrCtx h, HintMask hintmask) {
                 if (last != NULL &&
                     ((last->flags ^ curr->flags) & STEM_VERT) == 0 &&
                     last->edge1 >= curr->edge0) {
-                    addWarn(h, warn_hint4);
+                    if (!(h->g->flags & CFW_NO_HINT_WARNINGS))
+                        addWarn(h, warn_hint4);
                 }
                 last = curr;
             }
@@ -2157,7 +2163,8 @@ static void saveHintMaskOp(cstrCtx h, unsigned char *map,
                    duplicates of the initial mask the rendering behavior can
                    change because this causes fixupmap code to be executed by
                    the render, hence the above test. */
-                addWarn(h, warn_hint1);
+                if (!(g->flags & CFW_NO_HINT_WARNINGS))
+                    addWarn(h, warn_hint1);
                 return;
             }
         }
@@ -2198,7 +2205,7 @@ static void saveStems(cstrCtx h, unsigned char *map) {
     char *last;
 
     if (h->stems.cnt == 0) {
-        if (h->flags & SEEN_MOVETO) {
+        if (h->flags & SEEN_MOVETO && !(g->flags & CFW_NO_HINT_WARNINGS)) {
             /* Marking glyph has no stem hints */
             addWarn(h, warn_hint2);
         }
@@ -2229,11 +2236,11 @@ static void saveStems(cstrCtx h, unsigned char *map) {
     }
 
     if (!hasinit) {
-        if (h->hints.cnt > 0) {
+        if (h->hints.cnt > 0 && !(g->flags & CFW_NO_HINT_WARNINGS)) {
             /* All hintsubs removed! */
             addWarn(h, warn_hint5);
         }
-    } else {
+    } else if (!(g->flags & CFW_NO_HINT_WARNINGS)) {
         /* Unused stems */
         addWarn(h, warn_hint7);
     }

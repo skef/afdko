@@ -1,8 +1,8 @@
 import io
 import shutil
 from skbuild import setup
-from skbuild.exceptions import SKBuildError
-from skbuild.cmaker import get_cmake_version
+# from skbuild.exceptions import SKBuildError
+# from skbuild.cmaker import get_cmake_version
 
 classifiers = [
     'Development Status :: 5 - Production/Stable',
@@ -17,11 +17,11 @@ classifiers = [
 
 setup_requires = ['wheel', 'setuptools_scm', 'scikit-build', 'cython']
 
-#try:
-#    if LegacyVersion(get_cmake_version()) < LegacyVersion("3.16"):
-#        setup_requires.append('cmake')
-#except SKBuildError:
-#    setup_requires.append('cmake')
+# try:
+#     if LegacyVersion(get_cmake_version()) < LegacyVersion("3.16"):
+#         setup_requires.append('cmake')
+# except SKBuildError:
+#     setup_requires.append('cmake')
 
 setup_requires.append('cmake')
 
@@ -99,7 +99,7 @@ setup(name="afdko",
                   "hintplot=afdko.proofpdf:hintplot",
                   "waterfallplot=afdko.proofpdf:waterfallplot",
                   "detype1=afdko._internal:detype1",
-                  "makeotfexe=afdko._internal:makeotfexe",
+                  "addfeatures=afdko._internal:addfeatures",
                   "mergefonts=afdko._internal:mergefonts",
                   "rotatefont=afdko._internal:rotatefont",
                   "sfntdiff=afdko._internal:sfntdiff",

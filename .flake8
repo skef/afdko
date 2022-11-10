@@ -13,7 +13,6 @@ max-line-length = 79
 # exclude files that haven't had linting fixes applied yet
 exclude = 
     agd.py,
-    beztools.py,
     comparefamily.py,
     otf2otc.py,
     proofpdf.py,
